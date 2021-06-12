@@ -23,64 +23,65 @@ from sklearn.neighbors import (
 )
 import json
 
-# ------------ HYPERPARAMETERS -------------
-BASE_PATH = '../COVID-19/csse_covid_19_data/'
-N_NEIGHBORS = 5
-MIN_CASES = 1000
-NORMALIZE = True
-# ------------------------------------------
+def knnDiff(n_neighbors, min_cases, normalize):
 
-confirmed = os.path.join(
-    BASE_PATH, 
-    'csse_covid_19_time_series',
-    'time_series_19-covid-Confirmed.csv')
-confirmed = data.load_csv_data(confirmed)
-features = []
-targets = []
+    # ------------ HYPERPARAMETERS -------------
+    BASE_PATH = '../COVID-19/csse_covid_19_data/'
+    N_NEIGHBORS = n_neighbors
+    MIN_CASES = min_cases
+    NORMALIZE = normalize
+    # ------------------------------------------
 
-for val in np.unique(confirmed["Country/Region"]):
-    df = data.filter_by_attribute(
-        confirmed, "Country/Region", val)
-    cases, labels = data.get_cases_chronologically(df)
-    features.append(cases)
-    targets.append(labels)
+    confirmed = os.path.join(
+        BASE_PATH, 
+        'csse_covid_19_time_series',
+        'time_series_covid19_confirmed_global.csv')
+    confirmed = data.load_csv_data(confirmed)
+    features = []
+    targets = []
 
-features = np.concatenate(features, axis=0)
-targets = np.concatenate(targets, axis=0)
-predictions = {}
-
-for _dist in ['minkowski', 'manhattan']:
     for val in np.unique(confirmed["Country/Region"]):
-        # test data
         df = data.filter_by_attribute(
             confirmed, "Country/Region", val)
         cases, labels = data.get_cases_chronologically(df)
+        features.append(cases)
+        targets.append(labels)
 
-        # filter the rest of the data to get rid of the country we are
-        # trying to predict
-        mask = targets[:, 1] != val
-        tr_features = features[mask]
-        tr_targets = targets[mask][:, 1]
+    features = np.concatenate(features, axis=0)
+    targets = np.concatenate(targets, axis=0)
+    predictions = {}
 
-        above_min_cases = tr_features.sum(axis=-1) > MIN_CASES
-        tr_features = np.diff(tr_features[above_min_cases], axis=-1)
-        if NORMALIZE:
-            tr_features = tr_features / tr_features.sum(axis=-1, keepdims=True)
+    for _dist in ['minkowski', 'manhattan']:
+        for val in np.unique(confirmed["Country/Region"]):
+            # test data
+            df = data.filter_by_attribute(
+                confirmed, "Country/Region", val)
+            cases, labels = data.get_cases_chronologically(df)
 
-        tr_targets = tr_targets[above_min_cases]
+            # filter the rest of the data to get rid of the country we are
+            # trying to predict
+            mask = targets[:, 1] != val
+            tr_features = features[mask]
+            tr_targets = targets[mask][:, 1]
 
-        # train knn
-        knn = KNeighborsClassifier(n_neighbors=N_NEIGHBORS, metric=_dist)
-        knn.fit(tr_features, tr_targets)
+            above_min_cases = tr_features.sum(axis=-1) > MIN_CASES
+            tr_features = np.diff(tr_features[above_min_cases], axis=-1)
+            if NORMALIZE:
+                tr_features = tr_features / tr_features.sum(axis=-1, keepdims=True)
 
-        # predict
-        cases = np.diff(cases.sum(axis=0, keepdims=True), axis=-1)
-        # nearest country to this one based on trajectory
-        label = knn.predict(cases)
+            tr_targets = tr_targets[above_min_cases]
+
+            # train knn
+            knn = KNeighborsClassifier(n_neighbors=N_NEIGHBORS, metric=_dist)
+            knn.fit(tr_features, tr_targets)
+
+            # predict
+            cases = np.diff(cases.sum(axis=0, keepdims=True), axis=-1)
+            # nearest country to this one based on trajectory
+            label = knn.predict(cases)
         
-        if val not in predictions:
-            predictions[val] = {}
-        predictions[val][_dist] = label.tolist()
-
-with open('results/knn_diff.json', 'w') as f:
-    json.dump(predictions, f, indent=4)
+            if val not in predictions:
+                predictions[val] = {}
+            predictions[val][_dist] = label.tolist()
+    with open('../exp/results/knn_diff.json', 'w') as f:
+        json.dump(predictions, f, indent=4)
